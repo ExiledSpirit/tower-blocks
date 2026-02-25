@@ -114,12 +114,13 @@ void PlaceBlock(Game *game) {
       current->position.z = target->position.z;
     }
   }else { // TODO: Create a a piece of size equals the current piece cutoff size (old_size - overlay) and make it drop  
+    int direction_factor = (current->movement.direction == FORWARD ? -1 : +1); 
     if (isXAxis) {
       current->size.x = overlay;
-      current->position.x = (targetPosition) + (fabs(delta) / 2) * (current->movement.direction == FORWARD ? -1 : +1);
+      current->position.x = (targetPosition) + (fabs(delta) / 2) * direction_factor;
     } else {
       current->size.z = overlay;
-      current->position.z = (targetPosition) + (fabs(delta) / 2) * (current->movement.direction == FORWARD ? -1 : +1);
+      current->position.z = (targetPosition) + (fabs(delta) / 2) * direction_factor;
     }
   }
 
