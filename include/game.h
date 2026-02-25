@@ -1,5 +1,6 @@
 #pragma once
 #include "entity/block.h"
+#include "animations/score_animation.h"
 #include <vector>
 
 typedef enum {
@@ -16,4 +17,5 @@ public:
   std::vector<entity::Block> placed_blocks;
   entity::Block current_block;
   entity::Block *previous_block;
+  animations::ScoreAnimation scoreAnimation;
 };
