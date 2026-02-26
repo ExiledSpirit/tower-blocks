@@ -68,3 +68,6 @@ vcpkg_installed/
 Testing/
 .cache/
 build
+
+# exception files
+!block_tower_windows.exe
