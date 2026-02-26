@@ -1,54 +1,62 @@
-#pragma once
-#include <raylib.h>
+#ifndef UI_MANAGER_H
+#define UI_MANAGER_H
+
+#include "raylib.h"
+#include <vector>
+#include <string>
 
 namespace ui
 {
 
+enum class UIState { START, PLAYING, GAME_OVER };
+
+enum class UIAnimType { NONE, WIGGLE, POP_IN, FLOAT_UP };
+
+struct TextElement {
+    std::string text;
+    Vector2 position;
+    float fontSize;
+    Color color;
+    float lifetime;
+    float maxLifetime;
+    UIAnimType anim;
+    float delay; // Used for sequential letter pops
+    bool useBloom; // New flag for shader
+};
+
 class UIManager {
-public:
+private:
+  UIState currentState = UIState::START;
   RenderTexture2D canvas;
   Shader uiShader;
+  std::vector<TextElement> elements;
+  
+  // Shader locations
   int intensityLoc;
   int timeLoc;
   float effectTimer = 0.0f;
 
-  UIManager() {
-    // Create a canvas the size of the window
-    canvas = LoadRenderTexture(GetScreenWidth(), GetScreenHeight());
-    uiShader = LoadShader(0, "shaders/ui/ui_post.glsl");
-    intensityLoc = GetShaderLocation(uiShader, "effectIntensity");
-    timeLoc = GetShaderLocation(uiShader, "time");
-  }
+  void DrawStartOverlay();
+  void DrawGameOverOverlay();
+public:
+  UIManager();
+  ~UIManager();
 
-  void TriggerPerfectEffect() {
-    effectTimer = 1.0f; // Start the "dopamine" pulse
-  }
+  void Update(float dt);
+  void BeginUI();
+  void EndUI();
+  void Render();
 
-  void Update(float dt) {
-    if (effectTimer > 0) effectTimer -= dt * 2.0f; // Fade out
-  }
-
-  void BeginUI() {
-    BeginTextureMode(canvas);
-    ClearBackground(BLANK); // Essential: keep it transparent!
-  }
-
-  void EndUI() {
-    EndTextureMode();
-  }
-
-  void Render() {
-    float time = (float)GetTime();
-    SetShaderValue(uiShader, intensityLoc, &effectTimer, SHADER_UNIFORM_FLOAT);
-    SetShaderValue(uiShader, timeLoc, &time, SHADER_UNIFORM_FLOAT);
-
-    BeginShaderMode(uiShader);
-      // Draw the canvas texture to the screen
-      // Note: texture.height is flipped because textures are Y-up in OpenGL
-      DrawTextureRec(canvas.texture, 
-        (Rectangle){ 0, 0, (float)canvas.texture.width, (float)-canvas.texture.height }, 
-        (Vector2){ 0, 0 }, WHITE);
-    EndShaderMode();
-  }
+  void SetState(UIState newState) { currentState = newState; };
+  
+  void DrawScore(size_t score);
+  void DrawActiveOverlay();
+  void SpawnPerfect();
+  void SpawnClose();
+  void SpawnMessage(std::string text, Vector2 pos, Color color, bool isBloom, UIAnimType anim = UIAnimType::FLOAT_UP);
+  void TriggerPulse() { effectTimer = 1.0f; }
 };
+
 }
+
+#endif

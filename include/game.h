@@ -61,14 +61,9 @@ private:
   void RenderHUD();
 
   // 3D Rendering
+  void DrawGround();
   void DrawPlacedBlocks();
   void DrawFallingBlocks();
   void DrawCurrentBlock();
   void DrawBlock(const entity::Block *block, Shader lightingShader);
-
-  // HUD Rendering
-  void DrawGameStartOverlay();
-  void DrawGameScore();
-  void DrawGameOverOverlay();
-  void DrawOverlay(const char *title, const char *subtitle, size_t titleSize, size_t subtitleSize, int titleY, int subtitleY);
 };

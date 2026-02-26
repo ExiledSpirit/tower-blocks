@@ -21,8 +21,7 @@ void Game::Update(float dt)
   UpdateCameraPosition(dt);
   UpdateFallingBlocks(dt);
   UpdateCurrentBlock(dt);
-  UpdateScore(dt);
-  UpdateOverlay(dt);
+  uiManager.Update(dt); // UI Manager handles its own timers now!
 }
 
 void Game::Render3D()
@@ -35,58 +34,46 @@ void Game::Render3D()
   EndMode3D();
 }
 
-void Game::RenderHUD()
-{
-  DrawGameStartOverlay();
-  DrawGameScore();
-  DrawGameOverOverlay();
-}
-
 void Game::Render(float dt)
 {
   Render3D();
 
   // 2. Draw HUD to the Canvas
   uiManager.BeginUI();
-    RenderHUD();
+    uiManager.DrawScore(this->placed_blocks.size() - 1);
+    
+    uiManager.DrawActiveOverlay();
   uiManager.EndUI();
 
   // 3. Draw Canvas to screen with the Post-Processing Shader
-  BeginBlendMode(BLEND_ALPHA);
-    uiManager.Render();
-  EndBlendMode();
+  uiManager.Render();
 }
 
 void Game::UpdateGameState() {
-  bool inputPressed = IsKeyPressed(KEY_SPACE) || IsMouseButtonPressed(MOUSE_LEFT_BUTTON);
+    bool inputPressed = IsKeyPressed(KEY_SPACE) || IsMouseButtonPressed(MOUSE_LEFT_BUTTON);
 
-  switch (this->state) {
-    case READY_STATE: {
-      if (inputPressed) {
-        this->state = PLAYING_STATE;
-        this->current_block = CreateMovingBlock();
-        this->overlayAnimation.fade = animations::FADING_OUT;
-      }
-      break;
-    }
+    switch (this->state) {
+        case READY_STATE:
+            uiManager.SetState(ui::UIState::START); // Sync UI State
+            if (inputPressed) {
+                this->state = PLAYING_STATE;
+                uiManager.SetState(ui::UIState::PLAYING);
+                this->current_block = CreateMovingBlock();
+            }
+            break;
 
-    case PLAYING_STATE: {
-      if (inputPressed) {
-        PlaceBlock();
-        this->current_block = CreateMovingBlock();
-      }
-      break;
-    }
+        case PLAYING_STATE:
+            if (inputPressed) {
+                PlaceBlock();
+                this->current_block = CreateMovingBlock();
+            }
+            break;
 
-    case GAME_OVER_STATE: {
-      this->overlayAnimation.fade = animations::FADING_IN;
-      this->overlayAnimation.type = animations::GAME_OVER_OVERLAY;
-      if (inputPressed) {
-        InitGame();
-      }
-      break;
+        case GAME_OVER_STATE:
+            uiManager.SetState(ui::UIState::GAME_OVER); // Sync UI State
+            if (inputPressed) InitGame();
+            break;
     }
-  }
 }
 
 void Game::UpdateCameraPosition(float dt) {
@@ -297,6 +284,7 @@ void Game::PlaceBlock() {
 
   bool isPerfectOverlay = fabs(delta) < 0.3;
   if (isPerfectOverlay) { // TODO: Add cool dopamine effect
+    uiManager.SpawnPerfect();
     if (isXAxis) {
       current->size.x = target->size.x;
       current->position.x = target->position.x;
@@ -305,6 +293,7 @@ void Game::PlaceBlock() {
       current->position.z = target->position.z;
     }
   }else {
+    if (overlay < 0.5) uiManager.SpawnClose();
     if (isXAxis) {
       current->size.x = overlay;
       current->position.x = (targetPosition) + (delta / 2);
@@ -342,50 +331,6 @@ void Game::PlaceBlock() {
   
   this->scoreAnimation.duration = SCORE_ANIMATION_DURATION;
   this->scoreAnimation.scale = SCORE_ANIMATION_SCALE;
-}
-
-void Game::DrawOverlay(const char *title, const char *subtitle, size_t titleSize, size_t subtitleSize, int titleY, int subtitleY) {
-  Color dark = Fade(DARKGRAY, this->overlayAnimation.alpha);
-  Color light = Fade(GRAY, this->overlayAnimation.alpha);
-
-  int screenWidth = GetScreenWidth();
-  int titleWidth = MeasureText(title, titleSize);
-  int subtitleWidth = MeasureText(subtitle, subtitleSize);
-
-  DrawText(title, (screenWidth - titleWidth) / 2, titleY + this->overlayAnimation.offsetY, titleSize, dark);
-  DrawText(subtitle, (screenWidth - subtitleWidth) / 2, subtitleY + this->overlayAnimation.offsetY, subtitleSize, light);
-}
-
-void Game::DrawGameStartOverlay() {
-  if (this->overlayAnimation.type != animations::START_GAME_OVERLAY) {
-    return;
-  }
-  
-  DrawOverlay("START GAME", "Click or Press Space", 60, 30, 100, 170);
-}
-
-void Game::DrawGameOverOverlay() {
-  if (this->overlayAnimation.type != animations::GAME_OVER_OVERLAY) {
-    return;
-  }
-
-  DrawOverlay("GAME OVER", "Click or Press Space", 60, 30, 100, 170);
-}
-
-void Game::DrawGameScore() {
-  if (this->state == READY_STATE) {
-    return;
-  }
-
-  size_t score = this->placed_blocks.size() - 1;
-  const char* title = TextFormat("%zu", score);
-  int fontSize = 120 * this->scoreAnimation.scale;
-
-  int screenWidth = GetScreenWidth();
-  int textSize = MeasureText(title, fontSize);
-
-  int position = (screenWidth - textSize) / 2;
-  DrawText(title, position, 200, fontSize, DARKGRAY);
 }
 
 void Game::DrawFallingBlocks()
