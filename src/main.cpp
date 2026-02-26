@@ -1,5 +1,6 @@
 #include "raylib.h"
 #include "entity/block.h"
+#include "entity/falling_block.h"
 #include "entity/movement.h"
 #include "game.h"
 #include <vector>
@@ -10,6 +11,7 @@
 #include <algorithm>
 #include <raymath.h>
 #include <external/reasings.h>
+#include <rlgl.h>
 
 const int WINDOW_WIDTH = 600;
 const int WINDOW_HEIGHT = 1000;
@@ -46,8 +48,10 @@ void DrawPlacedBlocks(Game *game) {
 entity::Block default_block;
 
 void InitGame(Game *game) {
+  game->cube_model = LoadModelFromMesh(GenMeshCube(1, 1, 1));
   game->state = READY_STATE;
   game->placed_blocks.clear();
+  game->falling_blocks.clear();
   game->current_block = default_block;
   game->current_block.color_offset = GetRandomValue(0, 100);
 
@@ -100,6 +104,22 @@ entity::Block CreateMovingBlock(Game *game) {
   };
 }
 
+entity::FallingBlock CreateFallingBlock(Vector3 position, Vector3 size, Color color) {
+  return (entity::FallingBlock) {
+    position,
+    size,
+    { 0 },
+    {
+      .x = GetRandomValue(-300, 300) / 100.f,
+      .y = GetRandomValue(-300, 300) / 100.f,
+      .z = GetRandomValue(-300, 300) / 100.f,
+    },
+    { 0, -12, 0 },
+    color,
+    true
+  };
+}
+
 void PlaceBlock(Game *game) {
   entity::Block *current = &game->current_block;
   entity::Block *target = game->previous_block;
@@ -127,14 +147,36 @@ void PlaceBlock(Game *game) {
       current->size.z = target->size.z;
       current->position.z = target->position.z;
     }
-  }else { // TODO: Create a a piece of size equals the current piece cutoff size (old_size - overlay) and make it drop  
-    int direction_factor = (current->movement.direction == FORWARD ? -1 : +1); 
+  }else {
     if (isXAxis) {
       current->size.x = overlay;
       current->position.x = (targetPosition) + (delta / 2);
     } else {
       current->size.z = overlay;
       current->position.z = (targetPosition) + (delta / 2);
+    }
+
+    float choppedSize = currentSize - overlay;
+    if (choppedSize > 0.1) {
+      Vector3 choppedPositionVec = current->position;
+      Vector3 choppedSizeVec = current->size;
+
+      if (isXAxis) {
+        choppedSizeVec.x = choppedSize;
+        if (delta > 0) {
+          choppedPositionVec.x = currentPosition + currentSize / 2 - choppedSize / 2;
+        } else {
+          choppedPositionVec.x = currentPosition - currentSize / 2 + choppedSize / 2;
+        }
+      } else {
+        choppedSizeVec.z = choppedSize;
+        if (delta > 0) {
+          choppedPositionVec.z = currentPosition + currentSize / 2 - choppedSize / 2;
+        } else {
+          choppedPositionVec.z = currentPosition - currentSize / 2 + choppedSize / 2;
+        }
+      }
+      game->falling_blocks.push_back(CreateFallingBlock(choppedPositionVec, choppedSizeVec, current->color));
     }
   }
 
@@ -288,9 +330,50 @@ void UpdateOverlay(Game *game, float dt) {
   }
 }
 
+void DrawFallingBlocks(Game *game)
+{
+  size_t len = game->falling_blocks.size();
+
+  for (size_t i = 0; i < len; i++)
+  {
+    entity::FallingBlock *block = &game->falling_blocks.at(i);
+    if (block->active) {
+      Matrix scale = MatrixScale(block->size.x, block->size.y, block->size.z);
+      Matrix rotate = MatrixRotateXYZ(block->rotation);
+      Matrix translate = MatrixTranslate(block->position.x, block->position.y, block->position.z);
+      Matrix transform = MatrixMultiply(scale, MatrixMultiply(rotate, translate));
+
+      game->cube_model.transform = transform;
+
+      DrawModel(game->cube_model, {0}, 1.0, block->color);
+    }
+  }
+}
+
+void UpdateFallingBlocks(Game *game, float dt) {
+  size_t len = game->falling_blocks.size();
+  for (size_t i = 0; i < len; i++) {
+    entity::FallingBlock *block = &game->falling_blocks.at(i);
+    if (block->active)
+    {
+      block->rotation.x += block->rotation_speed.x * dt;
+      block->rotation.y += block->rotation_speed.y * dt;
+      block->rotation.z += block->rotation_speed.z * dt;
+
+      block->position.x += block->velocity.x * dt;
+      block->position.y += block->velocity.y * dt;
+      block->position.z += block->velocity.z * dt;
+
+      if (block->position. y < -100) {
+        block->active = false;
+      }
+    }
+  }
+}
+
 int main() {
   InitWindow(WINDOW_WIDTH, WINDOW_HEIGHT, "Tower Blocks");
-  SetTargetFPS(120);
+  SetTargetFPS(300);
 
   Camera3D camera = (Camera3D) {
     .position = (Vector3) { .x = 50, .y = 50, .z = 50 },
@@ -308,6 +391,7 @@ int main() {
     float dt = GetFrameTime();
     UpdateGameState(&game);
     UpdateCameraPosition(&camera, &game, dt);
+    UpdateFallingBlocks(&game, dt);
     UpdateCurrentBlock(&game, dt);
     UpdateScore(&game, dt);
     UpdateOverlay(&game, dt);
@@ -316,6 +400,7 @@ int main() {
       ClearBackground(BG_COLOR);
       BeginMode3D(camera);
         DrawPlacedBlocks(&game);
+        DrawFallingBlocks(&game);
         DrawCurrentBlock(&game);
       EndMode3D();
       DrawGameStartOverlay(&game);
