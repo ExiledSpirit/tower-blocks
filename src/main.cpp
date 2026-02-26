@@ -3,7 +3,7 @@
 
 const int WINDOW_WIDTH = 600;
 const int WINDOW_HEIGHT = 1000;
-const Color BG_COLOR = (Color){.r = 210, .g = 200, .b = 190, .a = 255};
+const Color BG_COLOR = (Color){.r = 0x87, .g = 0xCE, .b = 0xEB, .a = 255};
 
 int main() {
   InitWindow(WINDOW_WIDTH, WINDOW_HEIGHT, "Tower Blocks");
