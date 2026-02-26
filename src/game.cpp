@@ -44,8 +44,17 @@ void Game::RenderHUD()
 
 void Game::Render(float dt)
 {
-    Render3D();
+  Render3D();
+
+  // 2. Draw HUD to the Canvas
+  uiManager.BeginUI();
     RenderHUD();
+  uiManager.EndUI();
+
+  // 3. Draw Canvas to screen with the Post-Processing Shader
+  BeginBlendMode(BLEND_ALPHA);
+    uiManager.Render();
+  EndBlendMode();
 }
 
 void Game::UpdateGameState() {
@@ -194,7 +203,7 @@ void Game::DrawPlacedBlocks() {
 entity::Block default_block;
 
 void Game::InitGame() {
-  this->lighting_shader = LoadShader("shaders/lighting_vertex.glsl", "shaders/lighting_fragment.glsl");
+  this->lighting_shader = LoadShader("shaders/3d/lighting_vertex.glsl", "shaders/3d/lighting_fragment.glsl");
 
   this->cube_model = LoadModelFromMesh(GenMeshCube(1, 1, 1));
   this->state = READY_STATE;

@@ -3,6 +3,7 @@
 #include "entity/falling_block.h"
 #include "animations/score_animation.h"
 #include "animations/overlay_animation.h"
+#include "ui/ui_manager.h"
 #include <vector>
 
 // CONSTANTS
@@ -36,6 +37,7 @@ public:
   entity::Block *previous_block;
   animations::ScoreAnimation scoreAnimation;
   animations::OverlayAnimation overlayAnimation;
+  ui::UIManager uiManager;
 
   void InitGame();
   void Update(float dt);
