@@ -9,13 +9,17 @@
 #include <cmath>
 #include <algorithm>
 #include <raymath.h>
+#include <external/reasings.h>
 
 const int WINDOW_WIDTH = 600;
 const int WINDOW_HEIGHT = 1000;
 const Color BG_COLOR = (Color){.r = 210, .g = 200, .b = 190, .a = 255};
 const int MOVEMENT_THRESHOLD = 16;
+
 const float SCORE_ANIMATION_DURATION = 0.2;
 const float SCORE_ANIMATION_SCALE = 1.5;
+
+const int OVERLAY_ANIMATION_OFFSET_Y = -50;
 
 void DrawBlock(const entity::Block *block) {
   DrawCube(block->position, block->size.x, block->size.y, block->size.z, block->color);
@@ -46,6 +50,16 @@ void InitGame(Game *game) {
   game->placed_blocks.clear();
   game->current_block = default_block;
   game->current_block.color_offset = GetRandomValue(0, 100);
+
+  game->scoreAnimation.duration = SCORE_ANIMATION_DURATION;
+  game->scoreAnimation.scale = SCORE_ANIMATION_SCALE;
+
+  game->overlayAnimation = {
+    .type = animations::START_GAME_OVERLAY,
+    .fade = animations::FADING_IN,
+    .alpha = 0,
+    .offsetY = OVERLAY_ANIMATION_OFFSET_Y
+  };
 
   game->placed_blocks.push_back(default_block);
   game->previous_block = &game->placed_blocks[0];
@@ -96,7 +110,7 @@ void PlaceBlock(Game *game) {
   float currentSize = isXAxis ? current->size.x : current->size.z;
   float targetSize = isXAxis ? target->size.x : target->size.z;
 
-  float delta = fabs(currentPosition) - fabs(targetPosition);
+  float delta = currentPosition - targetPosition;
   float overlay = targetSize - fabs(delta);
 
   if (overlay < 0.1) {
@@ -104,7 +118,7 @@ void PlaceBlock(Game *game) {
     return;
   }
 
-  bool isPerfectOverlay = fabs(delta) < 0.2;
+  bool isPerfectOverlay = fabs(delta) < 0.3;
   if (isPerfectOverlay) { // TODO: Add cool dopamine effect
     if (isXAxis) {
       current->size.x = target->size.x;
@@ -117,10 +131,10 @@ void PlaceBlock(Game *game) {
     int direction_factor = (current->movement.direction == FORWARD ? -1 : +1); 
     if (isXAxis) {
       current->size.x = overlay;
-      current->position.x = (targetPosition) + (fabs(delta) / 2) * direction_factor;
+      current->position.x = (targetPosition) + (delta / 2);
     } else {
       current->size.z = overlay;
-      current->position.z = (targetPosition) + (fabs(delta) / 2) * direction_factor;
+      current->position.z = (targetPosition) + (delta / 2);
     }
   }
 
@@ -139,6 +153,7 @@ void UpdateGameState(Game *game) {
       if (inputPressed) {
         game->state = PLAYING_STATE;
         game->current_block = CreateMovingBlock(game);
+        game->overlayAnimation.fade = animations::FADING_OUT;
       }
       break;
     }
@@ -152,6 +167,8 @@ void UpdateGameState(Game *game) {
     }
 
     case GAME_OVER_STATE: {
+      game->overlayAnimation.fade = animations::FADING_IN;
+      game->overlayAnimation.type = animations::GAME_OVER_OVERLAY;
       if (inputPressed) {
         InitGame(game);
       }
@@ -167,23 +184,36 @@ void UpdateCameraPosition([[maybe_unused]]Camera3D *camera, Game *game, float dt
   camera->target.y = Lerp(camera->target.y, 2 * placed_blocks_len, dt);
 }
 
+void DrawOverlay([[maybe_unsused]]const Game *game, const char *title, const char *subtitle, size_t titleSize, size_t subtitleSize, int titleY, int subtitleY) {
+  Color dark = Fade(DARKGRAY, game->overlayAnimation.alpha);
+  Color light = Fade(GRAY, game->overlayAnimation.alpha);
+
+  int screenWidth = GetScreenWidth();
+  int titleWidth = MeasureText(title, titleSize);
+  int subtitleWidth = MeasureText(subtitle, subtitleSize);
+
+  DrawText(title, (screenWidth - titleWidth) / 2, titleY + game->overlayAnimation.offsetY, titleSize, dark);
+  DrawText(subtitle, (screenWidth - subtitleWidth) / 2, subtitleY + game->overlayAnimation.offsetY, subtitleSize, light);
+}
+
 void DrawGameStartOverlay(const Game *game) {
-  if (game->state != READY_STATE) {
+  if (game->overlayAnimation.type != animations::START_GAME_OVERLAY) {
+    return;
+  }
+  
+  DrawOverlay(game, "START GAME", "Click or Press Space", 60, 30, 100, 170);
+}
+
+void DrawGameOverOverlay(Game *game) {
+  if (game->overlayAnimation.type != animations::GAME_OVER_OVERLAY) {
     return;
   }
 
-  const char* title = "START GAME";
-  int fontSize = 60;
-
-  int screenWidth = GetScreenWidth();
-  int textSize = MeasureText(title, fontSize);
-
-  int position = (screenWidth - textSize) / 2;
-  DrawText(title, position, 50, fontSize, DARKGRAY);
+  DrawOverlay(game, "GAME OVER", "Click or Press Space", 60, 30, 100, 170);
 }
 
 void DrawGameScore(Game *game) {
-  if (game->state != PLAYING_STATE) {
+  if (game->state == READY_STATE) {
     return;
   }
 
@@ -196,24 +226,6 @@ void DrawGameScore(Game *game) {
 
   int position = (screenWidth - textSize) / 2;
   DrawText(title, position, 200, fontSize, DARKGRAY);
-}
-
-void DrawGameOverOverlay(Game *game) {
-  if (game->state != GAME_OVER_STATE) {
-    return;
-  }
-
-  const char* title = "GAME OVER!";
-  int fontSize = 60;
-
-  int screenWidth = GetScreenWidth();
-  int textSize = MeasureText(title, fontSize);
-
-  int position = (screenWidth - textSize) / 2;
-  DrawText(title, position, 50, fontSize, DARKGRAY);
-
-  fontSize = 40;
-  DrawText(TextFormat("SCORE: %zu", game->placed_blocks.size()), position, 100, fontSize, LIME);
 }
 
 void UpdateCurrentBlock(Game *game, float dt) {
@@ -248,6 +260,34 @@ void UpdateScore(Game *game, float dt) {
   }
 }
 
+const float FADE_SPEED = 2.5;
+
+void UpdateOverlay(Game *game, float dt) {
+  animations::OverlayAnimation *animation = &game->overlayAnimation;
+
+  if (animation->fade == animations::FADING_IN) {
+    animation->alpha += dt * FADE_SPEED;
+    // Ease for smooth start/stop
+    float t = EaseSineInOut(dt, 0.0f, 1.0f, FADE_SPEED);
+    animation->offsetY = Lerp(OVERLAY_ANIMATION_OFFSET_Y, 0, animation->alpha);
+
+    if (animation->alpha >= 1) {
+      animation->alpha = 1;
+      animation->offsetY = 0;
+      animation->fade = animations::NO_FADING;
+    }
+  } else if (animation->fade == animations::FADING_OUT) {
+    animation->alpha -= dt * FADE_SPEED;
+    animation->offsetY = Lerp(OVERLAY_ANIMATION_OFFSET_Y, 0, animation->alpha);
+
+    if (animation->alpha <= 0) {
+      animation->alpha = 0;
+      animation->offsetY = OVERLAY_ANIMATION_OFFSET_Y;
+      animation->fade = animations::NO_FADING;
+    }
+  }
+}
+
 int main() {
   InitWindow(WINDOW_WIDTH, WINDOW_HEIGHT, "Tower Blocks");
   SetTargetFPS(120);
@@ -270,6 +310,7 @@ int main() {
     UpdateCameraPosition(&camera, &game, dt);
     UpdateCurrentBlock(&game, dt);
     UpdateScore(&game, dt);
+    UpdateOverlay(&game, dt);
 
     BeginDrawing();
       ClearBackground(BG_COLOR);
