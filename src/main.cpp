@@ -23,9 +23,13 @@ const float SCORE_ANIMATION_SCALE = 1.5;
 
 const int OVERLAY_ANIMATION_OFFSET_Y = -50;
 
-void DrawBlock(const entity::Block *block) {
-  DrawCube(block->position, block->size.x, block->size.y, block->size.z, block->color);
-  DrawCubeWires(block->position, block->size.x, block->size.y, block->size.z, BLACK);
+void DrawBlock(const entity::Block *block, Shader lightingShader) {
+  Vector4 normalizedColor = ColorNormalize(block->color);
+  Vector3 normalizedColorVec3 = {.x=normalizedColor.x, .y=normalizedColor.y, .z=normalizedColor.z};
+  SetShaderValue(lightingShader, GetShaderLocation(lightingShader, "blockColor"), &normalizedColorVec3, SHADER_UNIFORM_VEC3);
+  BeginShaderMode(lightingShader);
+    DrawCube(block->position, block->size.x, block->size.y, block->size.z, block->color);
+  EndShaderMode();
 }
 
 void DrawCurrentBlock(Game *game) {
@@ -33,7 +37,7 @@ void DrawCurrentBlock(Game *game) {
     return;
   }
 
-  DrawBlock(&game->current_block);
+  DrawBlock(&game->current_block, game->lighting_shader);
 }
 
 void DrawPlacedBlocks(Game *game) {
@@ -41,13 +45,15 @@ void DrawPlacedBlocks(Game *game) {
 
   for (size_t i = 0; i < blocks.size(); i++) {
     entity::Block *block = &blocks[i];
-    DrawBlock(block);
+    DrawBlock(block, game->lighting_shader);
   }
 }
 
 entity::Block default_block;
 
 void InitGame(Game *game) {
+  game->lighting_shader = LoadShader("shaders/lighting_vertex.glsl", "shaders/lighting_fragment.glsl");
+
   game->cube_model = LoadModelFromMesh(GenMeshCube(1, 1, 1));
   game->state = READY_STATE;
   game->placed_blocks.clear();
@@ -345,6 +351,10 @@ void DrawFallingBlocks(Game *game)
 
       game->cube_model.transform = transform;
 
+      Vector4 normalizedColor = ColorNormalize(block->color);
+      Vector3 normalizedColorVec3 = {.x=normalizedColor.x, .y=normalizedColor.y, .z=normalizedColor.z};
+      SetShaderValue(game->lighting_shader, GetShaderLocation(game->lighting_shader, "blockColor"), &normalizedColorVec3, SHADER_UNIFORM_VEC3);
+      game->cube_model.materials[0].shader = game->lighting_shader;
       DrawModel(game->cube_model, {0}, 1.0, block->color);
     }
   }
@@ -373,7 +383,9 @@ void UpdateFallingBlocks(Game *game, float dt) {
 
 int main() {
   InitWindow(WINDOW_WIDTH, WINDOW_HEIGHT, "Tower Blocks");
-  SetTargetFPS(300);
+
+  int monitorHz = GetMonitorRefreshRate(GetCurrentMonitor());
+  SetTargetFPS(monitorHz);
 
   Camera3D camera = (Camera3D) {
     .position = (Vector3) { .x = 50, .y = 50, .z = 50 },
@@ -395,6 +407,8 @@ int main() {
     UpdateCurrentBlock(&game, dt);
     UpdateScore(&game, dt);
     UpdateOverlay(&game, dt);
+
+    SetShaderValue(game.lighting_shader, GetShaderLocation(game.lighting_shader, "cameraPosition"), &camera.position, SHADER_UNIFORM_VEC3);
 
     BeginDrawing();
       ClearBackground(BG_COLOR);

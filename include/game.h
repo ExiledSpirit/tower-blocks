@@ -16,6 +16,7 @@ public:
   Game();
 
   GameState state;
+  Shader lighting_shader;
   Model cube_model;
   std::vector<entity::Block> placed_blocks;
   std::vector<entity::FallingBlock> falling_blocks;
