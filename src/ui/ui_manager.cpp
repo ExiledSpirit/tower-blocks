@@ -58,7 +58,7 @@ void UIManager::DrawScore(size_t score)
   int textSize = MeasureText(title, fontSize);
 
   int position = (screenWidth - textSize) / 2;
-  DrawText(title, position, 200, fontSize, DARKGRAY);
+  DrawText(title, position, 200, fontSize, RAYWHITE);
 }
 
 

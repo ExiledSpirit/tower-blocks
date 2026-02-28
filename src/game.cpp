@@ -24,10 +24,16 @@ void Game::Update(float dt)
   uiManager.Update(dt); // UI Manager handles its own timers now!
 }
 
+void DrawTerrain()
+{
+  DrawPlane({0}, {50, 50}, {0xac, 0xca, 0x84, 255}); // TODO: Change for terrain.Draw() and terrain.update() in the future
+}
+
 void Game::Render3D()
 {
   SetShaderValue(this->lighting_shader, GetShaderLocation(this->lighting_shader, "cameraPosition"), &this->mainCamera.position, SHADER_UNIFORM_VEC3);
   BeginMode3D(this->mainCamera);
+    DrawTerrain();
     DrawPlacedBlocks();
     DrawFallingBlocks();
     DrawCurrentBlock();
