@@ -75,8 +75,8 @@ void UIManager::DrawActiveOverlay()
 }
 
 void DrawOverlay(const char *title, const char *subtitle, size_t titleSize, size_t subtitleSize, int titleY, int subtitleY) {
-  Color dark = DARKGRAY;
-  Color light = GRAY;
+  Color dark = WHITE;
+  Color light = LIGHTGRAY;
 
   int screenWidth = GetScreenWidth();
   int titleWidth = MeasureText(title, titleSize);
