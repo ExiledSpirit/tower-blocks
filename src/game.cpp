@@ -1,5 +1,7 @@
 #include "game.h"
 #include "external/reasings.h"
+#include "entity/movement.h"
+#include "raylib.h"
 #include "raymath.h"
 
 Game::Game()
@@ -26,7 +28,7 @@ void Game::Update(float dt)
 
 void DrawTerrain()
 {
-  DrawPlane({0}, {50, 50}, {0xac, 0xca, 0x84, 255}); // TODO: Change for terrain.Draw() and terrain.update() in the future
+  DrawCube({0, -2, 0}, 50, 4, 50, {0xac, 0xca, 0x84, 255}); // TODO: Change for terrain.Draw() and terrain.update() in the future
 }
 
 void Game::Render3D()
@@ -90,20 +92,12 @@ void Game::UpdateCameraPosition(float dt) {
 }
 
 void Game::UpdateCurrentBlock(float dt) {
-  if (this->state != PLAYING_STATE) {
-    return;
-  }
+    if (this->state != PLAYING_STATE) return;
 
-  entity::Block *block = &this->current_block;
-  float *axisPosition = block->movement.axis == X ? &block->position.x : &block->position.z;
-
-  int direction = block->movement.direction == FORWARD ? 1 : -1;
-  *axisPosition += direction * block->movement.speed * dt;
-
-  if (fabs(*axisPosition) >= MOVEMENT_THRESHOLD) {
-    block->movement.direction = block->movement.direction == FORWARD ? BACKWARD : FORWARD;
-    *axisPosition = fmax(fmin(MOVEMENT_THRESHOLD, *axisPosition), -MOVEMENT_THRESHOLD);
-  }
+    // Delegate the movement logic to the component we built!
+    if (current_block.movement) {
+        current_block.movement->Update(current_block.position, dt);
+    }
 }
 
 void Game::UpdateScore(float dt) {
@@ -148,31 +142,31 @@ void Game::UpdateOverlay(float dt) {
 }
 
 void Game::UpdateFallingBlocks(float dt) {
-  size_t len = this->falling_blocks.size();
-  for (size_t i = 0; i < len; i++) {
-    entity::FallingBlock *block = &this->falling_blocks.at(i);
-    if (block->active)
+  for (auto& block : falling_blocks)
+  {
+    if (block.physics)
     {
-      block->rotation.x += block->rotation_speed.x * dt;
-      block->rotation.y += block->rotation_speed.y * dt;
-      block->rotation.z += block->rotation_speed.z * dt;
+      block.physics->Integrate(block.position, dt);
 
-      block->position.x += block->velocity.x * dt;
-      block->position.y += block->velocity.y * dt;
-      block->position.z += block->velocity.z * dt;
-
-      if (block->position. y < -100) {
-        block->active = false;
+      if (block.position.y < -50.f)
+      {
+        block.physics = nullptr;
       }
     }
   }
 }
+
+entity::Block& Game::GetPreviousBlock() {
+    return placed_blocks[previousBlockIndex];
+}
+
 void Game::DrawBlock(const entity::Block *block, Shader lightingShader) {
-  Vector4 normalizedColor = ColorNormalize(block->color);
+  math::Color color = block->color;
+  Vector4 normalizedColor = ColorNormalize({.r = color.r, .g = color.g, .b = color.b, .a = color.a});
   Vector3 normalizedColorVec3 = {.x=normalizedColor.x, .y=normalizedColor.y, .z=normalizedColor.z};
   SetShaderValue(lightingShader, GetShaderLocation(lightingShader, "blockColor"), &normalizedColorVec3, SHADER_UNIFORM_VEC3);
   BeginShaderMode(lightingShader);
-    DrawCube(block->position, block->size.x, block->size.y, block->size.z, block->color);
+    DrawCube(block->position, block->size.x, block->size.y, block->size.z, {.r = color.r, .g = color.g, .b = color.b, .a = color.a});
   EndShaderMode();
 }
 
@@ -185,26 +179,34 @@ void Game::DrawCurrentBlock() {
 }
 
 void Game::DrawPlacedBlocks() {
-  std::vector blocks = this->placed_blocks;
+  const std::vector<entity::Block>& blocks = this->placed_blocks;
 
   for (size_t i = 0; i < blocks.size(); i++) {
-    entity::Block *block = &blocks[i];
+    const entity::Block *block = &blocks[i];
     DrawBlock(block, this->lighting_shader);
   }
 }
-
-entity::Block default_block;
-
 void Game::InitGame() {
   this->lighting_shader = LoadShader("shaders/3d/lighting_vertex.glsl", "shaders/3d/lighting_fragment.glsl");
-
   this->cube_model = LoadModelFromMesh(GenMeshCube(1, 1, 1));
+  
   this->state = READY_STATE;
   this->placed_blocks.clear();
   this->falling_blocks.clear();
-  this->current_block = default_block;
+
+  // 1. Create and move the BASE block into the tower first
+  entity::Block baseBlock(0, {0,0,0}, {10, 2, 10}, {255, 255, 255, 255});
+  this->placed_blocks.push_back(std::move(baseBlock));
+
+  // 2. NOW it is safe to point to it
+  this->previous_block = &this->placed_blocks.back();
+
+  // 3. Create the first MOVING block (the one the player controls)
+  // Note: Ensure your Block constructor handles these arguments
+  this->current_block = entity::Block(1, {0, 2, 0}, {10, 2, 10}, {200, 200, 200, 255});
   this->current_block.color_offset = GetRandomValue(0, 100);
 
+  // ... Animation Init ...
   this->scoreAnimation.duration = SCORE_ANIMATION_DURATION;
   this->scoreAnimation.scale = SCORE_ANIMATION_SCALE;
 
@@ -214,151 +216,158 @@ void Game::InitGame() {
     .alpha = 0,
     .offsetY = OVERLAY_ANIMATION_OFFSET_Y
   };
-
-  this->placed_blocks.push_back(default_block);
-  this->previous_block = &this->placed_blocks[0];
 }
-
 entity::Block Game::CreateMovingBlock() {
-  entity::Block *target = this->previous_block;
+    entity::Block* target = this->previous_block;
 
-  Axis axis = target->movement.axis == X ? Z : X;
-  Direction direction = GetRandomValue(0, 1) == 0 ? FORWARD : BACKWARD;
+    // 1. Determine Axis (Flip from X to Z or vice versa)
+    // Note the -> arrow for the unique_ptr
+    entity::Axis axis = (target->index % 2 == 0) ? entity::Z : entity::X;
+    entity::Direction direction = (GetRandomValue(0, 1) == 0) ? entity::FORWARD : entity::BACKWARD;
 
-  Vector3 position = target->position;
-  position.y += target->size.y;
+    // 2. Calculate Position
+    Vector3 position = target->position;
+    position.y += target->size.y;
 
-  if (axis == X) {
-    position.x = (direction == FORWARD ? -1 : 1) * MOVEMENT_THRESHOLD;
-  } else {
-    position.z = (direction == FORWARD ? -1 : 1) * MOVEMENT_THRESHOLD;
-  }
-
-  size_t index = target->index + 1;
-  int offset = target->color_offset + index;
-  float r = sinf(0.3 * offset) * 55 + 200;
-  float g = sinf(0.3 * offset + 2) * 55 + 200;
-  float b = sinf(0.3 * offset + 4) * 55 + 200;
-
-  return {
-    index,
-    position,
-    target->size,
-    (Color){ r, g, b, 255 },
-    target->color_offset,
-    (Movement){
-      .speed = 16 + index * 0.5,
-      .direction = direction,
-      .axis = axis
+    if (axis == entity::X) {
+        position.x = (direction == entity::FORWARD ? -1 : 1) * MOVEMENT_THRESHOLD;
+    } else {
+        position.z = (direction == entity::FORWARD ? -1 : 1) * MOVEMENT_THRESHOLD;
     }
-  };
+
+    // 3. Generate Color
+    size_t index = target->index + 1;
+    int offset = target->color_offset + (int)index;
+    math::Color newColor = {
+        (unsigned char)(sinf(0.3f * offset) * 55 + 200),
+        (unsigned char)(sinf(0.3f * offset + 2.0f) * 55 + 200),
+        (unsigned char)(sinf(0.3f * offset + 4.0f) * 55 + 200),
+        255
+    };
+
+    // 4. Construct the Block
+    entity::Block newBlock(index, position, target->size, newColor);
+    newBlock.color_offset = target->color_offset;
+
+    // 5. Configure Movement using our new method
+    float speed = 16.0f + (index * 0.5f);
+    newBlock.SetMoving({.speed = speed, .direction = direction, .axis = axis});
+
+    // 6. Move it out (Crucial for unique_ptr support)
+    return newBlock;
 }
 
-entity::FallingBlock Game::CreateFallingBlock(Vector3 position, Vector3 size, Color color) {
-  return (entity::FallingBlock) {
-    position,
-    size,
-    { 0 },
-    {
-      .x = GetRandomValue(-300, 300) / 100.f,
-      .y = GetRandomValue(-300, 300) / 100.f,
-      .z = GetRandomValue(-300, 300) / 100.f,
-    },
-    { 0, -12, 0 },
-    color,
-    true
-  };
-}
+entity::Block Game::CreateFallingBlock(Vector3 position, Vector3 size, math::Color color) {
+    // 1. Create a standard block (id 0 because debris doesn't need an index)
+    entity::Block debris(0, position, size, color);
 
+    // 2. Randomize the "tumble" velocity
+    Vector3 initialVel = {
+        (float)GetRandomValue(-300, 300) / 100.0f,
+        (float)GetRandomValue(-100, 100) / 100.0f, // Slight vertical pop
+        (float)GetRandomValue(-300, 300) / 100.0f
+    };
+
+    // 3. Use the state-transition method we built
+    // This internally creates the Physics component and sets the state
+    debris.SetFalling(initialVel);
+
+    // 4. Return it using move semantics
+    return debris;
+}
 void Game::PlaceBlock() {
-  entity::Block *current = &this->current_block;
-  entity::Block *target = this->previous_block;
+  entity::Block& current = this->current_block; 
+  entity::Block& target = *this->previous_block;
 
-  bool isXAxis = current->movement.axis == X;
-  float currentPosition = isXAxis ? current->position.x : current->position.z;
-  float targetPosition = isXAxis ? target->position.x : target->position.z;
-  float currentSize = isXAxis ? current->size.x : current->size.z;
-  float targetSize = isXAxis ? target->size.x : target->size.z;
+  bool isXAxis = current.movement->axis == entity::X;
+  float currentPos = isXAxis ? current.position.x : current.position.z;
+  float targetPos  = isXAxis ? target.position.x  : target.position.z;
+  float currentSize = isXAxis ? current.size.x    : current.size.z;
+  float targetSize  = isXAxis ? target.size.x     : target.size.z;
 
-  float delta = currentPosition - targetPosition;
+  float delta = currentPos - targetPos;
   float overlay = targetSize - fabs(delta);
 
-  if (overlay < 0.1) {
+  // Game Over Check
+  if (overlay < 0.1f) {
     this->state = GAME_OVER_STATE;
     return;
   }
 
-  bool isPerfectOverlay = fabs(delta) < 0.3;
-  if (isPerfectOverlay) { // TODO: Add cool dopamine effect
+  bool isPerfect = fabs(delta) < 0.3f;
+
+  if (isPerfect) {
+    // Snap to target for that "Perfect" feel
+    if (isXAxis) current.position.x = target.position.x;
+    else         current.position.z = target.position.z;
+    
     uiManager.SpawnPerfect();
-    if (isXAxis) {
-      current->size.x = target->size.x;
-      current->position.x = target->position.x;
-    } else {
-      current->size.z = target->size.z;
-      current->position.z = target->position.z;
-    }
-  }else {
-    if (overlay < 0.5) uiManager.SpawnClose();
-    if (isXAxis) {
-      current->size.x = overlay;
-      current->position.x = (targetPosition) + (delta / 2);
-    } else {
-      current->size.z = overlay;
-      current->position.z = (targetPosition) + (delta / 2);
-    }
+  } else {
+    // --- THE SLICE (The part that stays) ---
+    float newSize = overlay;
+    float newPos = targetPos + (delta / 2.0f);
 
+    // --- THE CHOP (The debris) ---
     float choppedSize = currentSize - overlay;
-    if (choppedSize > 0.1) {
-      Vector3 choppedPositionVec = current->position;
-      Vector3 choppedSizeVec = current->size;
+    float choppedPos = (delta > 0) 
+        ? (newPos + newSize / 2.0f + choppedSize / 2.0f) 
+        : (newPos - newSize / 2.0f - choppedSize / 2.0f);
 
-      if (isXAxis) {
-        choppedSizeVec.x = choppedSize;
-        if (delta > 0) {
-          choppedPositionVec.x = currentPosition + currentSize / 2 - choppedSize / 2;
-        } else {
-          choppedPositionVec.x = currentPosition - currentSize / 2 + choppedSize / 2;
-        }
-      } else {
-        choppedSizeVec.z = choppedSize;
-        if (delta > 0) {
-          choppedPositionVec.z = currentPosition + currentSize / 2 - choppedSize / 2;
-        } else {
-          choppedPositionVec.z = currentPosition - currentSize / 2 + choppedSize / 2;
-        }
-      }
-      this->falling_blocks.push_back(CreateFallingBlock(choppedPositionVec, choppedSizeVec, current->color));
+    // Update Current Block Size/Pos
+    if (isXAxis) {
+      current.size.x = newSize;
+      current.position.x = newPos;
+    } else {
+      current.size.z = newSize;
+      current.position.z = newPos;
     }
+
+    // Create the debris block
+    Vector3 dPos = current.position;
+    Vector3 dSize = current.size;
+    if (isXAxis) { dPos.x = choppedPos; dSize.x = choppedSize; }
+    else         { dPos.z = choppedPos; dSize.z = choppedSize; }
+
+    this->falling_blocks.push_back(CreateFallingBlock(dPos, dSize, current.color));
   }
 
-  this->placed_blocks.push_back(this->current_block);
-  this->previous_block = &this->placed_blocks.back();
+  // 2. Finalize the Current Block state
+  current.SetPlaced();
+
+  // 3. Move it to the tower (Current becomes empty here!)
+  this->placed_blocks.push_back(std::move(current));
   
-  this->scoreAnimation.duration = SCORE_ANIMATION_DURATION;
-  this->scoreAnimation.scale = SCORE_ANIMATION_SCALE;
+  // 4. Update the 'previous' pointer safely
+  this->previous_block = &this->placed_blocks.back();
+
+  // 5. Spawn the next moving block
+  this->current_block = CreateMovingBlock();
 }
 
-void Game::DrawFallingBlocks()
-{
-  size_t len = this->falling_blocks.size();
+void Game::DrawFallingBlocks() {
+    for (auto& block : this->falling_blocks) {
+        // We only draw blocks that actually have physics (debris)
+        if (block.physics) {
+            // 1. Build the Transformation Matrix
+            // Rotation is now retrieved from the physics component
+            auto scale     = MatrixScale(block.size.x, block.size.y, block.size.z);
+            auto rotate    = MatrixRotateXYZ(block.physics->rotation); 
+            auto translate = MatrixTranslate(block.position.x, block.position.y, block.position.z);
+            
+            // Combine: Scale -> Rotate -> Translate (SRT Order)
+            this->cube_model.transform = MatrixMultiply(scale, MatrixMultiply(rotate, translate));
 
-  for (size_t i = 0; i < len; i++)
-  {
-    entity::FallingBlock *block = &this->falling_blocks.at(i);
-    if (block->active) {
-      Matrix scale = MatrixScale(block->size.x, block->size.y, block->size.z);
-      Matrix rotate = MatrixRotateXYZ(block->rotation);
-      Matrix translate = MatrixTranslate(block->position.x, block->position.y, block->position.z);
-      Matrix transform = MatrixMultiply(scale, MatrixMultiply(rotate, translate));
-
-      this->cube_model.transform = transform;
-
-      Vector4 normalizedColor = ColorNormalize(block->color);
-      Vector3 normalizedColorVec3 = {.x=normalizedColor.x, .y=normalizedColor.y, .z=normalizedColor.z};
-      SetShaderValue(this->lighting_shader, GetShaderLocation(this->lighting_shader, "blockColor"), &normalizedColorVec3, SHADER_UNIFORM_VEC3);
-      this->cube_model.materials[0].shader = this->lighting_shader;
-      DrawModel(this->cube_model, {0}, 1.0, block->color);
+            // 2. Update Shader Uniforms
+            ::Color rayColor = { block.color.r, block.color.g, block.color.b, block.color.a };
+            Vector4 normalized = ColorNormalize(rayColor);
+            Vector3 colorVec3 = { normalized.x, normalized.y, normalized.z };
+            
+            int loc = GetShaderLocation(this->lighting_shader, "blockColor");
+            SetShaderValue(this->lighting_shader, loc, &colorVec3, SHADER_UNIFORM_VEC3);
+            
+            // 3. Render the Model
+            this->cube_model.materials[0].shader = this->lighting_shader;
+            DrawModel(this->cube_model, {0, 0, 0}, 1.0f, rayColor);
+        }
     }
-  }
 }

@@ -1,6 +1,5 @@
 #pragma once
 #include "entity/block.h"
-#include "entity/falling_block.h"
 #include "animations/score_animation.h"
 #include "animations/overlay_animation.h"
 #include "ui/ui_manager.h"
@@ -32,9 +31,10 @@ public:
   Shader lighting_shader;
   Model cube_model;
   std::vector<entity::Block> placed_blocks;
-  std::vector<entity::FallingBlock> falling_blocks;
+  std::vector<entity::Block> falling_blocks;
   entity::Block current_block;
   entity::Block *previous_block;
+  size_t previousBlockIndex = 0;
   animations::ScoreAnimation scoreAnimation;
   animations::OverlayAnimation overlayAnimation;
   ui::UIManager uiManager;
@@ -46,7 +46,8 @@ private:
   /// @brief Action methods
   entity::Block CreateMovingBlock();
   void PlaceBlock();
-  entity::FallingBlock CreateFallingBlock(Vector3 position, Vector3 size, Color color);
+  entity::Block CreateFallingBlock(Vector3 position, Vector3 size, math::Color color);
+  entity::Block& GetPreviousBlock();
 
   /// @brief Update methods
   void UpdateGameState();
@@ -58,10 +59,8 @@ private:
 
   /// @brief Render methods
   void Render3D();
-  void RenderHUD();
 
   // 3D Rendering
-  void DrawGround();
   void DrawPlacedBlocks();
   void DrawFallingBlocks();
   void DrawCurrentBlock();

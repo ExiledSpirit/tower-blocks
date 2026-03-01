@@ -18,6 +18,9 @@ out vec4 finalColor;
 #define COLOUR_1 vec4(0.871, 0.267, 0.231, 1.0)  // its possible to make colors dynamic in the future
 #define COLOUR_2 vec4(0.0, 0.42, 0.706, 1.0)     // its possible to make colors dynamic in the future
 #define COLOUR_3 vec4(0.086, 0.137, 0.145, 1.0)  // its possible to make colors dynamic in the future
+// #define COLOUR_1 vec4(0.054901961, 0.745098039, 0.552941176, 1.0)
+// #define COLOUR_2 vec4(0.462745098, 0.843137255, 0.094117647, 1.0) 
+// #define COLOUR_3 vec4(1, 1, 0, 1.0)
 #define CONTRAST 3.5
 #define LIGTHING 0.4
 #define SPIN_AMOUNT 0.25
