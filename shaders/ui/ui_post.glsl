@@ -4,57 +4,43 @@ in vec2 fragTexCoord;
 out vec4 finalColor;
 
 uniform sampler2D texture0;
-uniform float effectIntensity; 
+uniform float effectIntensity; // Pulse for perfect hits
 uniform float time;
 
-// CRT Configuration
-const float curvature = 3.0;    // Higher = more screen bulge
-const float scanlineWeight = 0.05; // Darkness of scanlines
-const float scanlineFreq = 800.0;  // Number of scanlines
-
-// Helper for screen curvature (Barrel Distortion)
-vec2 curve(vec2 uv) {
-    uv = uv * 2.0 - 1.0;
-    vec2 offset = abs(uv.yx) / curvature;
-    uv = uv + uv * offset * offset;
-    uv = uv * 0.5 + 0.5;
-    return uv;
-}
-
 void main() {
-    // 1. Apply Curvature
-    vec2 uv = curve(fragTexCoord);
+    vec2 uv = fragTexCoord;
     
-    // Hard cutoff for the "bezel" (black edges outside the curve)
-    if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) {
-        finalColor = vec4(0.0, 0.0, 0.0, 1.0);
-        return;
+    // 1. Chromatic Aberration (The Pulse)
+    float amount = 0.005 * effectIntensity;
+    vec4 rCol = texture(texture0, vec2(uv.x + amount, uv.y));
+    vec4 gCol = texture(texture0, uv);
+    vec4 bCol = texture(texture0, vec2(uv.x - amount, uv.y));
+    
+    vec4 baseColor = vec4(rCol.r, gCol.g, bCol.b, gCol.a);
+
+    // 2. Simple Bloom (Bright Pass + Blur)
+    // We sample nearby pixels to create a "glow" around bright areas
+    vec4 sum = vec4(0.0);
+    float samples = 8.0;
+    float spread = 0.003;
+
+    for (float i = 0.0; i < samples; i++) {
+        float angle = i * (6.2831 / samples);
+        vec2 offset = vec2(cos(angle), sin(angle)) * spread;
+        vec4 col = texture(texture0, uv + offset);
+        
+        // Only add to bloom if the pixel is bright (Yellow/White)
+        float brightness = (col.r + col.g + col.b) / 3.0;
+        if (brightness > 0.6) {
+            sum += col * 0.25; 
+        }
     }
 
-    // 2. Chromatic Aberration (Your existing logic)
-    float amount = (0.005 + sin(time * 2.0) * 0.001) * effectIntensity;
-    float rCol = texture(texture0, vec2(uv.x + amount, uv.y)).r;
-    float gCol = texture(texture0, uv).g;
-    float bCol = texture(texture0, vec2(uv.x - amount, uv.y)).b;
-    float alpha = texture(texture0, uv).a;
+    // 3. Combine base UI with the glow
+    // We multiply sum by 1.5 to make it pop, and baseColor for the sharp text
+    vec4 glow = sum * (1.0 + effectIntensity); 
+    finalColor = baseColor + glow;
     
-    vec4 baseColor = vec4(rCol, gCol, bCol, alpha);
-
-    // 3. Scanlines
-    // We use a sine wave based on Y coordinate to create dark horizontal strips
-    float scanline = sin(uv.y * scanlineFreq) * scanlineWeight;
-    baseColor.rgb -= scanline;
-
-    // 4. Vignette (Darkens the corners)
-    float vignette = uv.x * uv.y * (1.0 - uv.x) * (1.0 - uv.y);
-    vignette = clamp(pow(16.0 * vignette, 0.1), 0.0, 1.0);
-    baseColor.rgb *= vignette;
-
-    // 5. Flicker (Subtle noise)
-    float flicker = 1.0 - (sin(time * 30.0) * 0.01);
-    baseColor.rgb *= flicker;
-
-    // 6. Final Color Assembly
-    // (Combining your existing Bloom logic here if desired)
-    finalColor = baseColor;
+    // Maintain alpha from the original texture
+    finalColor.a = baseColor.a;
 }
